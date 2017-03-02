@@ -1,20 +1,16 @@
 # encoding=utf8
 import codecs
-import json
+import json,pickle
 import os
 import ast
 import re
-
 from semanticpy.vector_space import VectorSpace
 
 
+def getWords(text):
+    return re.compile('\w+').findall(text)
 
-
-
-
-
-
-
+#extract names and comments from files
 repo = "/Users/mehranhassani/repos/nova/"
 if not os.path.exists("files_str.json"):
     py_files_str = dict()
@@ -44,10 +40,9 @@ if not os.path.exists("files_str.json"):
     json.dump(py_files_str, save_files_str)
 else:
     py_files_str = json.loads(open("files_str.json","r").read())
-
-
-if not os.path.exists("file_vs.json"):
-    py_file_VS = dict()
+#make VS for files
+py_file_VS = dict()
+if not os.path.exists("files_vs.json"):
     for key,text in py_files_str.iteritems():
         break_dash_text=[]
         for word in text:
@@ -57,7 +52,18 @@ if not os.path.exists("file_vs.json"):
                 break_dash_text.append(word)
         file_vector_space = VectorSpace(break_dash_text, transforms=[])
         py_file_VS[key]=file_vector_space
-    save_files_vs = open("files_vs.json", "w")
-    json.dump(py_file_VS, save_files_vs)
+    save_files_vs = open("files_vs.pickle", "w")
+    pickle.dump(py_file_VS, save_files_vs)
+# save_files_vs = open("files_vs.json", "r")
+# py_file_VS = pickle.load( save_files_vs)
 
+#make VS for blueprints
+blueprints_json = open("json_metadata.json","r").read().split("\n")
+bluprints_vs=dict()
+for blueprint in blueprints_json:
+    data = json.loads(blueprint)
+    blueprint_vector_space = VectorSpace(getWords(data['summary']+data['title']), transforms=[])
+    bluprints_vs[data['bugs_collection_link']]=blueprint_vector_space
+save_blueprint_vs = open("blueprint_vs.pickle", "w")
+pickle.dump(bluprints_vs, save_blueprint_vs)
 
