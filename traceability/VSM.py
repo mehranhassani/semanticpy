@@ -4,16 +4,43 @@ import json,pickle
 import os
 import ast
 import re
+from bs4 import BeautifulSoup
+
+import requests
+
 from semanticpy.vector_space import VectorSpace
 
+import logging
+logging.basicConfig(format='%(asctime)s %(message)s')
 
+
+def get_related_docs(rating_list,id,cut,threshold):
+    related = []
+    if id>cut:
+        for score in range(0,cut):
+            if rating_list[score]>threshold:
+                related.append(score)
+    else:
+        for score in range(cut,len(rating_list)):
+            if rating_list[score]>threshold:
+                related.append(score)
+    return related
 def getWords(text):
     return re.compile('\w+').findall(text)
 
-#extract names and comments from files
+
+
+
+
+
+
+file_counter=1541
 repo = "/Users/mehranhassani/repos/nova/"
-if not os.path.exists("files_str.json"):
-    py_files_str = dict()
+words_list = []
+word_file_bp_map = dict()
+if not os.path.exists("text.json") or True:
+    logging.warning('start extracting words from files')
+    file_counter=0
     for root, dirs, files in os.walk(repo):
                 for file in files:
                     if file.endswith(".py"):
@@ -21,6 +48,8 @@ if not os.path.exists("files_str.json"):
                         with codecs.open(os.path.join(root, file), "r") as pyFile:
                             sourcestr = pyFile.read()
                             source = sourcestr.split("\n")
+
+                            #remove licence
                             for line_index in range(0,len(source)):
                                 if source[0].startswith("#"):
                                     del source[0]
@@ -31,39 +60,57 @@ if not os.path.exists("files_str.json"):
                             names = sorted({node.id for node in ast.walk(file_ast) if isinstance(node, ast.Name)})
                             comments = '\n'.join(re.findall(r'\"\"\"(.*)\"\"\"',source))
                             comments += '\n'.join(re.findall(r'\#(.*)',source))
-                            text = names+comments.split(" ")
-                            py_files_str[os.path.join(root, file)]= [item for item in text if item !='']
-                            # for function in [node for node in file_ast.body if isinstance(node, ast.FunctionDef)]:
-                            #     if ast.get_docstring(function):
-                            #         comments += "\n"+ast.get_docstring(function)
-    save_files_str = open("files_str.json","w")
-    json.dump(py_files_str, save_files_str)
-else:
-    py_files_str = json.loads(open("files_str.json","r").read())
-#make VS for files
-py_file_VS = dict()
-if not os.path.exists("files_vs.json"):
-    for key,text in py_files_str.iteritems():
-        break_dash_text=[]
-        for word in text:
-            if "_" in word:
-                break_dash_text.extend(word.split("_"))
-            else:
-                break_dash_text.append(word)
-        file_vector_space = VectorSpace(break_dash_text, transforms=[])
-        py_file_VS[key]=file_vector_space
-    save_files_vs = open("files_vs.pickle", "w")
-    pickle.dump(py_file_VS, save_files_vs)
-# save_files_vs = open("files_vs.json", "r")
-# py_file_VS = pickle.load( save_files_vs)
+                            text = names+getWords(comments)
+                            words = ' '.join(text).replace("_","")
+                            if words !='':
+                                words_list.append(words)
+                                word_file_bp_map[words] = os.path.join(root, file)
+                                file_counter+=1
 
-#make VS for blueprints
-blueprints_json = open("json_metadata.json","r").read().split("\n")
-bluprints_vs=dict()
-for blueprint in blueprints_json:
-    data = json.loads(blueprint)
-    blueprint_vector_space = VectorSpace(getWords(data['summary']+data['title']), transforms=[])
-    bluprints_vs[data['bugs_collection_link']]=blueprint_vector_space
-save_blueprint_vs = open("blueprint_vs.pickle", "w")
-pickle.dump(bluprints_vs, save_blueprint_vs)
+    logging.warning('start extracting words from blueprints')
+    blueprints_json = open("json_metadata.json","r").read().split("\n")
+    for blueprint in blueprints_json:
+        data = json.loads(blueprint)
+        if '/nova/' in data['self_link']:
+            words = ' '.join(getWords(data['summary'] + data['title']))
+            #add linked spec to the words
+            if data['specification_url']:
+                try:
+                    spec_link = requests.get(data['specification_url'])
+                except Exception as e:
+                    print e
+                if spec_link.status_code<400:
+                    soup = BeautifulSoup(spec_link.text)
+                    words+=' '.join([i.text for i in soup.find_all('p')])
+            words_list.append(words)
+            word_file_bp_map[words]=data['bugs_collection_link']
+    text_file = open("text.json","wb")
+    map_file =  open("map.json","wb")
+    pickle.dump(words_list,text_file)
+    pickle.dump(word_file_bp_map,map_file)
+    text_file.close()
+    map_file.close()
+text_file = open("text.json","rb")
+map_file =  open("map.json","rb")
+words_list = pickle.load(text_file)
+word_file_bp_map = pickle.load(map_file)
+if not os.path.exists("VSM.pickle"):
+    VS  = VectorSpace(words_list)
+    save_vs = open("VSM.pickle", "wb")
+    logging.warning('start writing file for vector_space ')
+    pickle.dump(VS, save_vs)
+    logging.warning('end writing file for vector_space ')
+    save_vs.close()
+VS_file = open("VSM.pickle", "rb")
+logging.warning('start reading file for files_vector_space ')
+VS = pickle.load(VS_file)
+logging.warning('end reading file for files_vector_space ')
 
+for i in range(file_counter,len(words_list)):
+    related = get_related_docs(VS.related(i),i,file_counter,0.5)
+    if related:
+        print "######"
+        print word_file_bp_map[words_list[i]]
+        print "related:"
+        for r in related:
+            print word_file_bp_map[words_list[r]]
