@@ -33,7 +33,7 @@ class VectorSpace:
     def related(self, document_id):
         """ find documents that are related to the document indexed by passed Id within the document Vectors"""
         ratings = [self._cosine(self.collection_of_document_term_vectors[document_id], document_vector) for document_vector in self.collection_of_document_term_vectors]
-        ratings.sort(reverse = True)
+        # ratings.sort(reverse = True)
         return ratings
 
 
